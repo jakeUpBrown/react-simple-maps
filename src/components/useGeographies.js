@@ -10,41 +10,53 @@ import {
   prepareMesh,
 } from "../utils"
 
-export default function useGeographies({ geography, parseGeographies }) {
+export default function useGeographies({
+  geography,
+  parseGeographies,
+  getGeographyKey,
+  mesh: withMesh = false,
+}) {
   const { path } = useContext(MapContext)
-  const [output, setOutput] = useState({})
+  const [source, setSource] = useState(null)
 
+  // Only the raw source is held in state. Parsing and preparation happen in
+  // the memos below, so a caller passing an inline parseGeographies no longer
+  // re-fires this effect (which previously caused a setState feedback loop).
   useEffect(() => {
     if (typeof window === `undefined`) return
-
     if (!geography) return
+
+    let cancelled = false
 
     if (isString(geography)) {
       fetchGeographies(geography).then((geos) => {
-        if (geos) {
-          setOutput({
-            geographies: getFeatures(geos, parseGeographies),
-            mesh: getMesh(geos),
-          })
-        }
+        if (geos && !cancelled) setSource(geos)
       })
     } else {
-      setOutput({
-        geographies: getFeatures(geography, parseGeographies),
-        mesh: getMesh(geography),
-      })
+      setSource(geography)
     }
-  }, [geography, parseGeographies])
 
-  const { geographies, outline, borders } = useMemo(() => {
-    const mesh = output.mesh || {}
-    const preparedMesh = prepareMesh(mesh.outline, mesh.borders, path)
-    return {
-      geographies: prepareFeatures(output.geographies, path),
-      outline: preparedMesh.outline,
-      borders: preparedMesh.borders,
+    return () => {
+      cancelled = true
     }
-  }, [output, path])
+  }, [geography])
+
+  const geographies = useMemo(() => {
+    if (!source) return []
+    return prepareFeatures(
+      getFeatures(source, parseGeographies),
+      path,
+      getGeographyKey
+    )
+  }, [source, path, parseGeographies, getGeographyKey])
+
+  // Building the mesh means two full mesh() passes plus two path
+  // serializations, so it is opt-in rather than computed for every consumer.
+  const { outline, borders } = useMemo(() => {
+    if (!withMesh || !source) return {}
+    const preparedMesh = getMesh(source) || {}
+    return prepareMesh(preparedMesh.outline, preparedMesh.borders, path)
+  }, [withMesh, source, path])
 
   return { geographies, outline, borders }
 }

@@ -6,13 +6,23 @@ import useGeographies from "./useGeographies"
 
 const Geographies = forwardRef(
   (
-    { geography, children, parseGeographies, className = "", ...restProps },
+    {
+      geography,
+      children,
+      parseGeographies,
+      getGeographyKey,
+      mesh = false,
+      className = "",
+      ...restProps
+    },
     ref
   ) => {
     const { path, projection } = useContext(MapContext)
     const { geographies, outline, borders } = useGeographies({
       geography,
       parseGeographies,
+      getGeographyKey,
+      mesh,
     })
 
     return (
@@ -35,6 +45,8 @@ Geographies.propTypes = {
   ]),
   children: PropTypes.func,
   parseGeographies: PropTypes.func,
+  getGeographyKey: PropTypes.func,
+  mesh: PropTypes.bool,
   className: PropTypes.string,
 }
 
