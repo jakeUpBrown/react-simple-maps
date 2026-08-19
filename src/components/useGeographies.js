@@ -10,41 +10,54 @@ import {
   prepareMesh,
 } from "../utils"
 
-export default function useGeographies({ geography, parseGeographies }) {
+export default function useGeographies({
+  geography,
+  parseGeographies,
+  getGeographyKey,
+  mesh: withMesh = false,
+}) {
   const { path } = useContext(MapContext)
-  const [output, setOutput] = useState({})
+  const [fetched, setFetched] = useState(null)
 
+  // Only a URL has to land in state. An object/array geography is used
+  // directly during render, so `geographies` always matches the geography
+  // prop of the render it is returned from. Routing it through state instead
+  // meant a consumer that rebuilds its topology got one render whose features
+  // still belonged to the previous topology -- stale ids reaching children
+  // that had already moved on to the new data.
   useEffect(() => {
     if (typeof window === `undefined`) return
+    if (!geography || !isString(geography)) return
 
-    if (!geography) return
+    let cancelled = false
 
-    if (isString(geography)) {
-      fetchGeographies(geography).then((geos) => {
-        if (geos) {
-          setOutput({
-            geographies: getFeatures(geos, parseGeographies),
-            mesh: getMesh(geos),
-          })
-        }
-      })
-    } else {
-      setOutput({
-        geographies: getFeatures(geography, parseGeographies),
-        mesh: getMesh(geography),
-      })
+    fetchGeographies(geography).then((geos) => {
+      if (geos && !cancelled) setFetched(geos)
+    })
+
+    return () => {
+      cancelled = true
     }
-  }, [geography, parseGeographies])
+  }, [geography])
 
-  const { geographies, outline, borders } = useMemo(() => {
-    const mesh = output.mesh || {}
-    const preparedMesh = prepareMesh(mesh.outline, mesh.borders, path)
-    return {
-      geographies: prepareFeatures(output.geographies, path),
-      outline: preparedMesh.outline,
-      borders: preparedMesh.borders,
-    }
-  }, [output, path])
+  const source = isString(geography) ? fetched : geography || null
+
+  const geographies = useMemo(() => {
+    if (!source) return []
+    return prepareFeatures(
+      getFeatures(source, parseGeographies),
+      path,
+      getGeographyKey
+    )
+  }, [source, path, parseGeographies, getGeographyKey])
+
+  // Building the mesh means two full mesh() passes plus two path
+  // serializations, so it is opt-in rather than computed for every consumer.
+  const { outline, borders } = useMemo(() => {
+    if (!withMesh || !source) return {}
+    const preparedMesh = getMesh(source) || {}
+    return prepareMesh(preparedMesh.outline, preparedMesh.borders, path)
+  }, [withMesh, source, path])
 
   return { geographies, outline, borders }
 }
