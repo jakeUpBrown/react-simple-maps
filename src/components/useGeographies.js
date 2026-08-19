@@ -17,29 +17,30 @@ export default function useGeographies({
   mesh: withMesh = false,
 }) {
   const { path } = useContext(MapContext)
-  const [source, setSource] = useState(null)
+  const [fetched, setFetched] = useState(null)
 
-  // Only the raw source is held in state. Parsing and preparation happen in
-  // the memos below, so a caller passing an inline parseGeographies no longer
-  // re-fires this effect (which previously caused a setState feedback loop).
+  // Only a URL has to land in state. An object/array geography is used
+  // directly during render, so `geographies` always matches the geography
+  // prop of the render it is returned from. Routing it through state instead
+  // meant a consumer that rebuilds its topology got one render whose features
+  // still belonged to the previous topology -- stale ids reaching children
+  // that had already moved on to the new data.
   useEffect(() => {
     if (typeof window === `undefined`) return
-    if (!geography) return
+    if (!geography || !isString(geography)) return
 
     let cancelled = false
 
-    if (isString(geography)) {
-      fetchGeographies(geography).then((geos) => {
-        if (geos && !cancelled) setSource(geos)
-      })
-    } else {
-      setSource(geography)
-    }
+    fetchGeographies(geography).then((geos) => {
+      if (geos && !cancelled) setFetched(geos)
+    })
 
     return () => {
       cancelled = true
     }
   }, [geography])
+
+  const source = isString(geography) ? fetched : geography || null
 
   const geographies = useMemo(() => {
     if (!source) return []
