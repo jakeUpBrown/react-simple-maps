@@ -25,6 +25,7 @@ export default [
         "d3-geo": "d3",
         "d3-zoom": "d3",
         "d3-selection": "d3",
+        "d3-transition": "d3",
         "topojson-client": "topojson",
         "prop-types": "PropTypes",
       },
