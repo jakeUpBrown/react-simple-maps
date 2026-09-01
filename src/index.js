@@ -15,7 +15,9 @@ export {
 export {
   ZoomPanProvider,
   ZoomPanContext,
+  ZoomPanControlsContext,
   useZoomPanContext,
+  useZoomPanControls,
 } from "./components/ZoomPanProvider"
 export { default as useGeographies } from "./components/useGeographies"
 export { default as useZoomPan } from "./components/useZoomPan"
