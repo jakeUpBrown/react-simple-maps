@@ -1,5 +1,4 @@
-import React, { createContext, useMemo, useCallback, useContext } from "react"
-import PropTypes from "prop-types"
+import { createContext, use, useMemo } from "react"
 import * as d3Geo from "d3-geo"
 
 const { geoPath, ...projections } = d3Geo
@@ -37,7 +36,7 @@ const MapProvider = ({
   width,
   height,
   projection,
-  projectionConfig,
+  projectionConfig = {},
   ...restProps
 }) => {
   const [cx, cy] = projectionConfig.center || []
@@ -45,7 +44,7 @@ const MapProvider = ({
   const [p1, p2] = projectionConfig.parallels || []
   const s = projectionConfig.scale || null
 
-  const projMemo = useMemo(() => {
+  const proj = useMemo(() => {
     return makeProjection({
       projectionConfig: {
         center: cx || cx === 0 || cy || cy === 0 ? [cx, cy] : null,
@@ -59,8 +58,6 @@ const MapProvider = ({
     })
   }, [width, height, projection, cx, cy, rx, ry, rz, p1, p2, s])
 
-  const proj = useCallback(projMemo, [projMemo])
-
   const value = useMemo(() => {
     return {
       width,
@@ -70,18 +67,11 @@ const MapProvider = ({
     }
   }, [width, height, proj])
 
-  return <MapContext.Provider value={value} {...restProps} />
-}
-
-MapProvider.propTypes = {
-  width: PropTypes.number,
-  height: PropTypes.number,
-  projection: PropTypes.oneOfType([PropTypes.string, PropTypes.func]),
-  projectionConfig: PropTypes.object,
+  return <MapContext value={value} {...restProps} />
 }
 
 const useMapContext = () => {
-  return useContext(MapContext)
+  return use(MapContext)
 }
 
 export { MapProvider, MapContext, useMapContext }

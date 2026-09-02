@@ -1,42 +1,19 @@
 import { babel } from "@rollup/plugin-babel";
-import resolve from "@rollup/plugin-node-resolve";
-import commonjs from "@rollup/plugin-commonjs";
-import { terser } from "rollup-plugin-terser";
 
 import pkg from "./package.json";
 
-const external = [
+const bundled = [
   ...Object.keys(pkg.dependencies || {}),
   ...Object.keys(pkg.peerDependencies || {}),
 ];
 
+// Match subpath imports too, so `react/jsx-runtime` (automatic JSX runtime)
+// and `react/compiler-runtime` (emitted by the React Compiler) stay external
+// instead of being inlined into the bundle.
+const external = (id) =>
+  bundled.some((name) => id === name || id.startsWith(`${name}/`));
+
 export default [
-  {
-    input: "src/index.js",
-    external,
-    output: {
-      name: "reactSimpleMaps",
-      file: pkg.browser,
-      format: "umd",
-      extend: true,
-      globals: {
-        react: "React",
-        "react-dom": "ReactDOM",
-        "d3-geo": "d3",
-        "d3-zoom": "d3",
-        "d3-selection": "d3",
-        "d3-transition": "d3",
-        "topojson-client": "topojson",
-        "prop-types": "PropTypes",
-      },
-    },
-    plugins: [
-      babel({ babelHelpers: "bundled" }),
-      resolve(),
-      commonjs(),
-      terser(),
-    ],
-  },
   {
     input: "src/index.js",
     external,
@@ -44,6 +21,7 @@ export default [
       {
         file: pkg.main,
         format: "cjs",
+        exports: "named",
       },
       {
         file: pkg.module,
