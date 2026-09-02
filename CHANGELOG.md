@@ -25,6 +25,10 @@ React 19 only. See the migration notes below for the breaking changes.
   concurrent-safe and what unblocked the compiler
 - The zoom behavior is no longer torn down and re-bound when `width`/`height`
   or any of the `onMove*` callbacks change
+- The `controls` object from `useZoomPan` / `useZoomPanControls` keeps one
+  identity for the life of the component, unchanged from v3. Consumers put it
+  in effect dependency arrays, so it must not churn on a resize or a
+  projection change
 - Switched to the automatic JSX runtime and `use()` for context reads
 - Added an ESLint setup (`npm run lint`) with `eslint-plugin-react-hooks`, so
   a future rules-of-React violation shows up instead of silently turning the

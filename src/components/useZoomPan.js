@@ -58,6 +58,32 @@ export default function useZoomPan({
   const [b1, b2] = b
   const [minZoom, maxZoom] = scaleExtent
 
+  // Everything the imperative controls need that changes with props. Synced
+  // from a layout effect rather than assigned during render -- render-phase
+  // ref writes are the rule-of-React violation this hook used to carry.
+  //
+  // Reading through this instead of closing over the props is what keeps
+  // zoomTo, and therefore the whole controls object, stable for the life of
+  // the component. Consumers key effects off `controls`; giving it a new
+  // identity on every resize would resubscribe them and replay their setup.
+  //
+  // zoomTo bails until the binding effect below sets zoomRef, and passive
+  // effects run after every layout effect of the same commit, so this is
+  // always populated by the time zoomTo can do anything.
+  const latestRef = useRef(null)
+  useLayoutEffect(() => {
+    latestRef.current = {
+      width,
+      height,
+      projection,
+      translateExtent: [
+        [a1, a2],
+        [b1, b2],
+      ],
+      scaleExtent: [minZoom, maxZoom],
+    }
+  })
+
   const applyTransform = useCallback((transform, sourceEvent) => {
     const next = {
       x: transform.x,
@@ -173,24 +199,28 @@ export default function useZoomPan({
   // d3's zoom.transform applies a transform verbatim -- it does NOT enforce
   // scaleExtent/translateExtent the way gestures do. Clamping here keeps
   // programmatic flights honest: the promise lands exactly where it aimed.
-  const clampTransform = useCallback(
-    (cx, cy, k) => {
-      const k2 = Math.max(minZoom, Math.min(maxZoom, k))
+  const clampTransform = useCallback((cx, cy, k) => {
+    const {
+      width: w,
+      height: h,
+      translateExtent: te,
+      scaleExtent: se,
+    } = latestRef.current
+    const k2 = Math.max(se[0], Math.min(se[1], k))
+    const [[tex0, tey0], [tex1, tey1]] = te
 
-      const clampAxis = (t, size, e0, e1) => {
-        if (!isFinite(e0) || !isFinite(e1)) return t
-        const min = size - e1 * k2
-        const max = -e0 * k2
-        if (min > max) return (min + max) / 2
-        return Math.max(min, Math.min(max, t))
-      }
+    const clampAxis = (t, size, e0, e1) => {
+      if (!isFinite(e0) || !isFinite(e1)) return t
+      const min = size - e1 * k2
+      const max = -e0 * k2
+      if (min > max) return (min + max) / 2
+      return Math.max(min, Math.min(max, t))
+    }
 
-      const x = clampAxis(width / 2 - cx * k2, width, a1, b1)
-      const y = clampAxis(height / 2 - cy * k2, height, a2, b2)
-      return d3ZoomIdentity.translate(x, y).scale(k2)
-    },
-    [width, height, a1, a2, b1, b2, minZoom, maxZoom]
-  )
+    const x = clampAxis(w / 2 - cx * k2, w, tex0, tex1)
+    const y = clampAxis(h / 2 - cy * k2, h, tey0, tey1)
+    return d3ZoomIdentity.translate(x, y).scale(k2)
+  }, [])
 
   // zoomTo(target, options) => Promise<"complete" | "interrupted" | "noop">
   //   target: { coordinates: [lon, lat], zoom? }
@@ -205,8 +235,9 @@ export default function useZoomPan({
       const node = mapRef.current
       const behavior = zoomRef.current
       if (!node || !behavior || !target) return Promise.resolve("noop")
-      // Shadows nothing: this caps a computed fit, while the scaleExtent
-      // maxZoom above is enforced by clampTransform.
+      const { width: w, height: h, projection: proj } = latestRef.current
+      // Deliberately named apart from the scaleExtent maxZoom: this one caps
+      // a computed fit, and clampTransform still applies scaleExtent after.
       const { duration = 800, maxZoom: maxFitZoom } = options
 
       const fitBounds = (p0, p1) => {
@@ -223,7 +254,7 @@ export default function useZoomPan({
           k:
             target.zoom != null
               ? target.zoom
-              : Math.min((width - padding * 2) / dx, (height - padding * 2) / dy),
+              : Math.min((w - padding * 2) / dx, (h - padding * 2) / dy),
         }
       }
 
@@ -241,15 +272,15 @@ export default function useZoomPan({
         k = fit.k
       } else if (target.bounds) {
         const [[lon0, lat0], [lon1, lat1]] = target.bounds
-        const p0 = projection([lon0, lat0])
-        const p1 = projection([lon1, lat1])
+        const p0 = proj([lon0, lat0])
+        const p1 = proj([lon1, lat1])
         if (!p0 || !p1) return Promise.resolve("noop")
         const fit = fitBounds(p0, p1)
         cx = fit.cx
         cy = fit.cy
         k = fit.k
       } else if (target.coordinates) {
-        const p = projection(target.coordinates)
+        const p = proj(target.coordinates)
         if (!p) return Promise.resolve("noop")
         cx = p[0]
         cy = p[1]
@@ -291,7 +322,7 @@ export default function useZoomPan({
           () => "interrupted"
         )
     },
-    [clampTransform, projection, width, height]
+    [clampTransform]
   )
 
   const cancelZoom = useCallback(() => {
@@ -309,9 +340,10 @@ export default function useZoomPan({
     }
   }, [])
 
-  // Never changes identity because of zoom/pan motion, which is the whole
-  // point of the controls context -- only a new projection, size or extent
-  // rebuilds it.
+  // Stable for the life of the component: every member is a zero-dependency
+  // callback reading current values through latestRef. Consumers put this in
+  // effect dependency arrays, so nothing here may change identity on a
+  // resize, a projection change, or zoom/pan motion.
   const controls = useMemo(
     () => ({ zoomTo, cancelZoom, getPosition, subscribe }),
     [zoomTo, cancelZoom, getPosition, subscribe]
