@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useContext } from "react"
+import { use, useMemo, useState, useEffect } from "react"
 import { MapContext } from "./MapProvider"
 
 import {
@@ -16,7 +16,7 @@ export default function useGeographies({
   getGeographyKey,
   mesh: withMesh = false,
 }) {
-  const { path } = useContext(MapContext)
+  const { path } = use(MapContext)
   const [fetched, setFetched] = useState(null)
 
   // Only a URL has to land in state. An object/array geography is used
@@ -32,7 +32,7 @@ export default function useGeographies({
     let cancelled = false
 
     fetchGeographies(geography).then((geos) => {
-      if (geos && !cancelled) setFetched(geos)
+      if (geos && !cancelled) setFetched({ url: geography, data: geos })
     })
 
     return () => {
@@ -40,7 +40,15 @@ export default function useGeographies({
     }
   }, [geography])
 
-  const source = isString(geography) ? fetched : geography || null
+  // The response is tagged with the URL it was fetched from. Without that tag
+  // a switch from one URL to another kept rendering the previous response
+  // until the new one landed -- the same stale-features-under-a-new-prop
+  // problem the object/array path above avoids by deriving during render.
+  const source = isString(geography)
+    ? fetched && fetched.url === geography
+      ? fetched.data
+      : null
+    : geography || null
 
   const geographies = useMemo(() => {
     if (!source) return []

@@ -1,7 +1,8 @@
 import {
+  use,
   useCallback,
-  useContext,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -37,7 +38,7 @@ export default function useZoomPan({
   scaleExtent = [1, 8],
   zoom = 1,
 }) {
-  const { width, height, projection } = useContext(MapContext)
+  const { width, height, projection } = use(MapContext)
 
   const [lon, lat] = center
   const [position, setPosition] = useState({ x: 0, y: 0, k: 1 })
@@ -56,23 +57,6 @@ export default function useZoomPan({
   const [a1, a2] = a
   const [b1, b2] = b
   const [minZoom, maxZoom] = scaleExtent
-
-  // Callbacks and projection are read through refs inside the d3 handlers so
-  // changing them never tears down and re-binds the zoom behavior.
-  const callbacksRef = useRef({})
-  callbacksRef.current = { onMoveStart, onMove, onMoveEnd, filterZoomEvent }
-  const projectionRef = useRef(projection)
-  projectionRef.current = projection
-  const boundsRef = useRef({})
-  boundsRef.current = {
-    width,
-    height,
-    translateExtent: [
-      [a1, a2],
-      [b1, b2],
-    ],
-    scaleExtent: [minZoom, maxZoom],
-  }
 
   const applyTransform = useCallback((transform, sourceEvent) => {
     const next = {
@@ -109,71 +93,74 @@ export default function useZoomPan({
     }
   }, [])
 
+  // Effect Events. The zoom behavior is bound once and reads the latest
+  // callbacks, projection and size through these, so changing any of them
+  // never tears down and re-binds the gesture handlers. This replaces the
+  // refs that used to be assigned during render -- a rule-of-React violation
+  // that is unsafe under concurrent rendering and left the whole hook opaque
+  // to the React Compiler.
+  //
+  // sourceEvent is null for programmatic transforms (controlled props and
+  // zoomTo flights). Those still render every frame -- only the onMove*
+  // callbacks are reserved for user gestures, matching the old bypassEvents
+  // behavior without swallowing programmatic frames.
+  const handleZoomStart = useEffectEvent((d3Event) => {
+    if (!onMoveStart || !d3Event.sourceEvent) return
+    onMoveStart(
+      {
+        coordinates: projection.invert(
+          getCoords(width, height, d3Event.transform)
+        ),
+        zoom: d3Event.transform.k,
+      },
+      d3Event
+    )
+  })
+
+  const handleZoom = useEffectEvent((d3Event) => {
+    const { transform, sourceEvent } = d3Event
+    applyTransform(transform, sourceEvent)
+    if (!onMove || !sourceEvent) return
+    onMove(
+      {
+        x: transform.x,
+        y: transform.y,
+        zoom: transform.k,
+        dragging: sourceEvent,
+      },
+      d3Event
+    )
+  })
+
+  const handleZoomEnd = useEffectEvent((d3Event) => {
+    const [x, y] = projection.invert(getCoords(width, height, d3Event.transform))
+    lastPosition.current = { x, y, k: d3Event.transform.k }
+    if (!onMoveEnd || !d3Event.sourceEvent) return
+    onMoveEnd({ coordinates: [x, y], zoom: d3Event.transform.k }, d3Event)
+  })
+
+  const handleZoomFilter = useEffectEvent((d3Event) => {
+    if (filterZoomEvent) {
+      return filterZoomEvent(d3Event)
+    }
+    return d3Event ? !d3Event.ctrlKey && !d3Event.button : false
+  })
+
   useEffect(() => {
     const svg = d3Select(mapRef.current)
 
-    // sourceEvent is null for programmatic transforms (controlled props and
-    // zoomTo flights). Those still render every frame — only the onMove*
-    // callbacks are reserved for user gestures, matching the old bypassEvents
-    // behavior without swallowing programmatic frames.
-    function handleZoomStart(d3Event) {
-      const { onMoveStart } = callbacksRef.current
-      if (!onMoveStart || !d3Event.sourceEvent) return
-      onMoveStart(
-        {
-          coordinates: projectionRef.current.invert(
-            getCoords(width, height, d3Event.transform)
-          ),
-          zoom: d3Event.transform.k,
-        },
-        d3Event
-      )
-    }
-
-    function handleZoom(d3Event) {
-      const { transform, sourceEvent } = d3Event
-      applyTransform(transform, sourceEvent)
-      const { onMove } = callbacksRef.current
-      if (!onMove || !sourceEvent) return
-      onMove(
-        {
-          x: transform.x,
-          y: transform.y,
-          zoom: transform.k,
-          dragging: sourceEvent,
-        },
-        d3Event
-      )
-    }
-
-    function handleZoomEnd(d3Event) {
-      const [x, y] = projectionRef.current.invert(
-        getCoords(width, height, d3Event.transform)
-      )
-      lastPosition.current = { x, y, k: d3Event.transform.k }
-      const { onMoveEnd } = callbacksRef.current
-      if (!onMoveEnd || !d3Event.sourceEvent) return
-      onMoveEnd({ coordinates: [x, y], zoom: d3Event.transform.k }, d3Event)
-    }
-
-    function filterFunc(d3Event) {
-      const { filterZoomEvent } = callbacksRef.current
-      if (filterZoomEvent) {
-        return filterZoomEvent(d3Event)
-      }
-      return d3Event ? !d3Event.ctrlKey && !d3Event.button : false
-    }
-
+    // Effect Events are wrapped rather than handed to d3 directly: they may
+    // only be called, never passed along as values.
     const zoomBehavior = d3Zoom()
-      .filter(filterFunc)
+      .filter((d3Event) => handleZoomFilter(d3Event))
       .scaleExtent([minZoom, maxZoom])
       .translateExtent([
         [a1, a2],
         [b1, b2],
       ])
-      .on("start", handleZoomStart)
-      .on("zoom", handleZoom)
-      .on("end", handleZoomEnd)
+      .on("start", (d3Event) => handleZoomStart(d3Event))
+      .on("zoom", (d3Event) => handleZoom(d3Event))
+      .on("end", (d3Event) => handleZoomEnd(d3Event))
 
     zoomRef.current = zoomBehavior
     svg.call(zoomBehavior)
@@ -181,29 +168,29 @@ export default function useZoomPan({
     return () => {
       svg.on(".zoom", null)
     }
-  }, [width, height, a1, a2, b1, b2, minZoom, maxZoom, applyTransform])
+  }, [a1, a2, b1, b2, minZoom, maxZoom])
 
-  // d3's zoom.transform applies a transform verbatim — it does NOT enforce
+  // d3's zoom.transform applies a transform verbatim -- it does NOT enforce
   // scaleExtent/translateExtent the way gestures do. Clamping here keeps
   // programmatic flights honest: the promise lands exactly where it aimed.
-  const clampTransform = useCallback((cx, cy, k) => {
-    const { width: w, height: h, translateExtent: te, scaleExtent: se } =
-      boundsRef.current
-    const k2 = Math.max(se[0], Math.min(se[1], k))
-    const [[tex0, tey0], [tex1, tey1]] = te
+  const clampTransform = useCallback(
+    (cx, cy, k) => {
+      const k2 = Math.max(minZoom, Math.min(maxZoom, k))
 
-    const clampAxis = (t, size, e0, e1) => {
-      if (!isFinite(e0) || !isFinite(e1)) return t
-      const min = size - e1 * k2
-      const max = -e0 * k2
-      if (min > max) return (min + max) / 2
-      return Math.max(min, Math.min(max, t))
-    }
+      const clampAxis = (t, size, e0, e1) => {
+        if (!isFinite(e0) || !isFinite(e1)) return t
+        const min = size - e1 * k2
+        const max = -e0 * k2
+        if (min > max) return (min + max) / 2
+        return Math.max(min, Math.min(max, t))
+      }
 
-    const x = clampAxis(w / 2 - cx * k2, w, tex0, tex1)
-    const y = clampAxis(h / 2 - cy * k2, h, tey0, tey1)
-    return d3ZoomIdentity.translate(x, y).scale(k2)
-  }, [])
+      const x = clampAxis(width / 2 - cx * k2, width, a1, b1)
+      const y = clampAxis(height / 2 - cy * k2, height, a2, b2)
+      return d3ZoomIdentity.translate(x, y).scale(k2)
+    },
+    [width, height, a1, a2, b1, b2, minZoom, maxZoom]
+  )
 
   // zoomTo(target, options) => Promise<"complete" | "interrupted" | "noop">
   //   target: { coordinates: [lon, lat], zoom? }
@@ -218,9 +205,9 @@ export default function useZoomPan({
       const node = mapRef.current
       const behavior = zoomRef.current
       if (!node || !behavior || !target) return Promise.resolve("noop")
-      const proj = projectionRef.current
-      const { width: w, height: h } = boundsRef.current
-      const { duration = 800, maxZoom } = options
+      // Shadows nothing: this caps a computed fit, while the scaleExtent
+      // maxZoom above is enforced by clampTransform.
+      const { duration = 800, maxZoom: maxFitZoom } = options
 
       const fitBounds = (p0, p1) => {
         const x0 = Math.min(p0[0], p1[0])
@@ -236,33 +223,33 @@ export default function useZoomPan({
           k:
             target.zoom != null
               ? target.zoom
-              : Math.min((w - padding * 2) / dx, (h - padding * 2) / dy),
+              : Math.min((width - padding * 2) / dx, (height - padding * 2) / dy),
         }
       }
 
       let cx, cy, k
       if (target.projectedBounds) {
-        // Already in the projection's coordinate space — the caller computed
+        // Already in the projection's coordinate space -- the caller computed
         // the frame from rendered geometry (e.g. d3 path bounds), which is the
         // only correct way to frame shapes under a composite projection like
         // geoAlbersUsa, where lon/lat corners of an Alaska/CONUS box project
         // discontinuously.
-        const [b0, b1] = target.projectedBounds
-        const fit = fitBounds(b0, b1)
+        const [pb0, pb1] = target.projectedBounds
+        const fit = fitBounds(pb0, pb1)
         cx = fit.cx
         cy = fit.cy
         k = fit.k
       } else if (target.bounds) {
         const [[lon0, lat0], [lon1, lat1]] = target.bounds
-        const p0 = proj([lon0, lat0])
-        const p1 = proj([lon1, lat1])
+        const p0 = projection([lon0, lat0])
+        const p1 = projection([lon1, lat1])
         if (!p0 || !p1) return Promise.resolve("noop")
         const fit = fitBounds(p0, p1)
         cx = fit.cx
         cy = fit.cy
         k = fit.k
       } else if (target.coordinates) {
-        const p = proj(target.coordinates)
+        const p = projection(target.coordinates)
         if (!p) return Promise.resolve("noop")
         cx = p[0]
         cy = p[1]
@@ -274,7 +261,7 @@ export default function useZoomPan({
       // options.maxZoom caps a *computed* fit tighter than scaleExtent allows,
       // e.g. so scripted flights stop short of a zoom level that triggers
       // max-zoom UI behavior (clampTransform still applies scaleExtent after).
-      if (maxZoom != null && k > maxZoom) k = maxZoom
+      if (maxFitZoom != null && k > maxFitZoom) k = maxFitZoom
 
       const transform = clampTransform(cx, cy, k)
       const selection = d3Select(node)
@@ -292,7 +279,7 @@ export default function useZoomPan({
       // Deliberately the default (unnamed) transition: d3-zoom's gesture
       // handlers interrupt only the default name, so a named flight would
       // keep running under the user's fingers instead of yielding to them.
-      // transition.end() settles on every exit path — "end", "interrupt",
+      // transition.end() settles on every exit path -- "end", "interrupt",
       // and the silent cancel of a transition replaced before it starts.
       return selection
         .transition()
@@ -304,7 +291,7 @@ export default function useZoomPan({
           () => "interrupted"
         )
     },
-    [clampTransform]
+    [clampTransform, projection, width, height]
   )
 
   const cancelZoom = useCallback(() => {
@@ -322,8 +309,9 @@ export default function useZoomPan({
     }
   }, [])
 
-  // Stable across renders: consumers of the controls context never re-render
-  // because of zoom/pan motion.
+  // Never changes identity because of zoom/pan motion, which is the whole
+  // point of the controls context -- only a new projection, size or extent
+  // rebuilds it.
   const controls = useMemo(
     () => ({ zoomTo, cancelZoom, getPosition, subscribe }),
     [zoomTo, cancelZoom, getPosition, subscribe]

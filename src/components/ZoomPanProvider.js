@@ -1,5 +1,4 @@
-import React, { createContext, useContext } from "react"
-import PropTypes from "prop-types"
+import { createContext, use } from "react"
 
 const ZoomPanContext = createContext()
 
@@ -23,30 +22,22 @@ const ZoomPanProvider = ({
   ...restProps
 }) => {
   return (
-    <ZoomPanContext.Provider value={value} {...restProps}>
-      <ZoomPanControlsContext.Provider value={controls}>
+    <ZoomPanContext value={value} {...restProps}>
+      <ZoomPanControlsContext value={controls}>
         {children}
-      </ZoomPanControlsContext.Provider>
-    </ZoomPanContext.Provider>
+      </ZoomPanControlsContext>
+    </ZoomPanContext>
   )
 }
 
-ZoomPanProvider.propTypes = {
-  x: PropTypes.number,
-  y: PropTypes.number,
-  k: PropTypes.number,
-  transformString: PropTypes.string,
-  controls: PropTypes.object,
-}
-
 const useZoomPanContext = () => {
-  return useContext(ZoomPanContext)
+  return use(ZoomPanContext)
 }
 
 // { zoomTo, cancelZoom, getPosition, subscribe } — or null outside a
 // ZoomableGroup. See useZoomPan for the zoomTo target/options contract.
 const useZoomPanControls = () => {
-  return useContext(ZoomPanControlsContext)
+  return use(ZoomPanControlsContext)
 }
 
 export {

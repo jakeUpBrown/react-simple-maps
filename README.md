@@ -26,13 +26,16 @@ $ npm install react-simple-maps
 $ yarn add react-simple-maps
 ```
 
+`react-simple-maps` v4 requires React 19.2 or later, and is built with the
+[React Compiler](https://react.dev/learn/react-compiler). For React 18, stay on
+v3.
+
 ### Usage
 
 `React-simple-maps` exposes a set of components that can be combined to create svg maps with markers and annotations. In order to render a map you have to provide a reference to a valid topojson file. You can find example topojson files on [here](https://github.com/topojson/world-atlas) or [here](https://github.com/deldersveld/topojson). To learn how to make your own topojson maps from shapefiles, please read ["How to convert and prepare TopoJSON files for interactive mapping with d3"](https://hackernoon.com/how-to-convert-and-prepare-topojson-files-for-interactive-mapping-with-d3-499cf0ced5f) on medium.
 
 ```jsx
-import React from "react";
-import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
 
 // url to a valid topojson file
@@ -56,7 +59,7 @@ const App = () => {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  ReactDOM.render(<App />, document.getElementById("app"));
+  createRoot(document.getElementById("app")).render(<App />);
 });
 ```
 
