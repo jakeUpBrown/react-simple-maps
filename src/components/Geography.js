@@ -64,7 +64,9 @@ const Geography = ({
     ]
 
   // React 19 ids carry «» or : delimiters, neither usable inside url(#…).
-  const clipId = `rsm-clip-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`
+  const clipId = insetStroke
+    ? `rsm-clip-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`
+    : undefined
 
   const path = (
     <path
