@@ -1,6 +1,16 @@
 
 # Changelog
 
+## Unreleased
+
+- Added `insetStroke` to `Geography`. The path is clipped to its own outline
+  and its stroke width is doubled — the `strokeWidth` prop, and the
+  `strokeWidth` of whichever `style` state is active — so the whole stroke
+  lands inside the shape and `strokeWidth` keeps meaning the width you see
+- Two adjacent geographies then each show their own border along a shared
+  edge, instead of whichever one painted last covering the other's half. Off
+  by default, and without it `Geography` renders exactly as before
+
 ## v4.0.0
 
 React 19 only. See the migration notes below for the breaking changes.
